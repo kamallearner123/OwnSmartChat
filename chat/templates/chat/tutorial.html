@@ -1,0 +1,171 @@
+{% verbatim %}
+<div id="tutorial-wrap" style="overflow-y:auto;height:100%;padding:32px 48px;">
+<article style="max-width:860px;margin:0 auto;background:#fff;padding:24px 40px 40px;border-radius:10px;line-height:1.6;">
+
+<h1>Where the LLM code lives</h1>
+<p>The actual LLM request is made in <code>chat/views.py</code>, inside <code>chat_api()</code>.
+The Python package <code>ollama</code> sends the prompt to an Ollama server, which loads and runs
+the configured model. This repository does not contain model weights, implement a neural network,
+or train a model. The HTML and JavaScript provide the chat interface and pass messages to Django.</p>
+
+<h2>Files involved</h2>
+<table>
+<tr><th>File</th><th>Responsibility</th></tr>
+<tr><td><code>chat/templates/chat/dashboard.html</code></td><td>Chat screen; collects the question, sends the conversation, and displays streamed text.</td></tr>
+<tr><td><code>config/urls.py</code></td><td>Includes the chat app's URL routes at the site root.</td></tr>
+<tr><td><code>chat/urls.py</code></td><td>Maps <code>/</code> to the dashboard and <code>/api/chat/</code> to the API view.</td></tr>
+<tr><td><code>chat/views.py</code></td><td>Validates messages, adds the system prompt, calls Ollama, and streams the reply.</td></tr>
+<tr><td><code>config/settings.py</code></td><td>Sets <code>OLLAMA_MODEL</code>, currently <code>llama3.2:3b</code>.</td></tr>
+<tr><td><code>chat/templates/chat/tutorial.html</code></td><td>This walkthrough, included in the dashboard's Tutorial tab.</td></tr>
+</table>
+
+<h2>How the pieces connect</h2>
+<p>When Ollama is configured to run locally, prompts are processed by the local Ollama service.
+Ollama chooses CPU/GPU execution based on its setup and available hardware; this Django code does
+not directly select a GPU. If Ollama is configured to use a remote host, the prompt goes to that host.</p>
+
+<h2>1. Architecture</h2>
+<pre><code>Browser (dashboard.html)
+   |  POST /api/chat/  {"messages": [...]}
+   v
+Django view  chat_api()   (chat/views.py)
+   |  ollama.chat(model, messages, stream=True)
+   v
+Ollama server (commonly localhost:11434)  -->  configured model
+   |  tokens, one small piece at a time
+   v
+StreamingHttpResponse  -->  browser prints text as it arrives</code></pre>
+
+<h2>2. Setup</h2>
+<h3>Install the model</h3>
+<p>Choose a model that fits your available memory. Ollama manages the model files and decides
+whether to use CPU or GPU based on its configuration and available hardware. The choices below
+are examples, not requirements imposed by this application:</p>
+<table>
+<tr><th>Model</th><th>Size</th><th>Note</th></tr>
+<tr><td>llama3.2:3b</td><td>~2.0 GB</td><td>Used here, good general chat</td></tr>
+<tr><td>llama3.2:1b</td><td>~1.3 GB</td><td>Faster, weaker</td></tr>
+<tr><td>qwen2.5:3b</td><td>~1.9 GB</td><td>Good multilingual</td></tr>
+<tr><td>phi3:mini</td><td>~2.2 GB</td><td>Strong reasoning for size</td></tr>
+</table>
+<pre><code>ollama pull llama3.2:3b
+ollama run llama3.2:3b "hello"     # quick test
+ollama ps                           # PROCESSOR column should say "100% GPU"
+nvidia-smi                          # shows ollama using VRAM</code></pre>
+
+<h3>Run the Django app</h3>
+<pre><code>python3 -m venv .venv
+.venv/bin/pip install django ollama
+.venv/bin/python manage.py runserver
+# open http://127.0.0.1:8000/</code></pre>
+<p>To change the model, edit <code>OLLAMA_MODEL</code> in <code>config/settings.py</code>.</p>
+
+<h2>3. How a question is served (code walkthrough)</h2>
+
+<h3>Step 1 - The browser keeps the conversation</h3>
+<p>This endpoint does not store conversation state between requests. Each request must include
+the previous turns that should be available as context. The page keeps them in a JavaScript array
+and sends the array each time:</p>
+<pre><code>const history = [];
+history.push({ role: 'user', content: question });
+
+fetch('/api/chat/', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+  body: JSON.stringify({ messages: history }),
+});</code></pre>
+<p>Each message has a <code>role</code> (<code>user</code> or <code>assistant</code>) and <code>content</code>.</p>
+
+<h3>Step 2 - URL routing</h3>
+<pre><code># chat/urls.py
+path('api/chat/', views.chat_api, name='chat_api')</code></pre>
+<p>Django matches <code>/api/chat/</code> and calls the <code>chat_api</code> view.</p>
+
+<h3>Step 3 - The view validates the input</h3>
+<pre><code>@require_POST
+def chat_api(request):
+    try:
+        messages = json.loads(request.body)["messages"]
+    except (ValueError, KeyError, TypeError):
+      return HttpResponseBadRequest('Expected JSON: {"messages": [...]}')</code></pre>
+<ul>
+<li><code>@require_POST</code> rejects any non-POST request.</li>
+  <li>The body must be JSON with a top-level <code>messages</code> key. Invalid JSON, a missing key,
+  or an incompatible top-level value returns HTTP 400.</li>
+  <li>The dashboard sends Django's CSRF token in the request header. The endpoint does not add a
+  separate user-authentication or rate-limit check.</li>
+</ul>
+
+<h3>Step 4 - Build the prompt for the model</h3>
+<pre><code>SYSTEM_PROMPT = {"role": "system", "content": "You are a helpful, concise assistant."}
+
+history = [SYSTEM_PROMPT] + [
+    {"role": m["role"], "content": str(m["content"])}
+    for m in messages
+    if isinstance(m, dict) and m.get("role") in ("user", "assistant") and "content" in m
+]</code></pre>
+<p>The <b>system prompt</b> defines the bot's behaviour and is always first. It is added on the
+server, and the browser may only send <code>user</code>/<code>assistant</code> roles, so a user cannot
+override it.</p>
+
+<h3>Step 5 - Call Ollama and stream the answer</h3>
+ollama ps                           # shows whether Ollama uses CPU, GPU, or both
+    for chunk in ollama.chat(model=settings.OLLAMA_MODEL,
+                             messages=history, stream=True):
+        yield chunk["message"]["content"]
+
+return StreamingHttpResponse(token_stream(), content_type="text/plain; charset=utf-8")</code></pre>
+./start.sh
+<li><code>ollama.chat(...)</code> sends the messages to the Ollama server over HTTP
+(<code>localhost:11434</code>). Ollama loads the model into GPU memory and generates tokens.</li>
+<p>For deployment, set <code>DJANGO_SECRET_KEY</code> to a private, persistent random value. Without
+it, this project generates a new key when Django starts, suitable only for local development.</p>
+<li><code>stream=True</code> makes it return a generator: one chunk per few tokens, instead of waiting
+for the full answer (which could take many seconds).</li>
+<li><code>token_stream</code> is a Python generator; <code>yield</code> hands each piece to
+<code>StreamingHttpResponse</code>, which writes it to the browser immediately.
+That is why text appears word by word like ChatGPT.</li>
+</ul>
+
+    return HttpResponseBadRequest('Expected JSON: {"messages": [...]}')</code></pre>
+<pre><code>const reader = res.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+<li>The body must be JSON with a top-level <code>messages</code> key. Invalid JSON, a missing key,
+or a top-level value that cannot be indexed by that key returns HTTP 400. The view does not fully
+validate every item in the messages list.</li>
+  if (done) break;
+  answer += decoder.decode(value, { stream: true });
+  botDiv.textContent = answer;
+}
+history.push({ role: 'assistant', content: answer });</code></pre>
+<p>When the stream ends, the full reply is appended to <code>history</code> so the next
+  try:
+    for chunk in ollama.chat(model=settings.OLLAMA_MODEL,
+                 messages=history, stream=True):
+      yield chunk["message"]["content"]
+  except Exception as exc:
+    yield f"\n[Error talking to Ollama: {exc}]"
+<ol>
+<li>User types a question and presses Send.</li>
+<li>JS adds it to <code>history</code> and POSTs the whole history to <code>/api/chat/</code>.</li>
+<li>Django validates it, prepends the system prompt.</li>
+<li><code>ollama.chat(stream=True)</code> runs the model on the GPU.</li>
+<li>Tokens are yielded and streamed to the browser, which displays them live.</li>
+<li>The finished answer is stored in <code>history</code> for the next turn.</li>
+</ol>
+
+<h2>5. Tips and troubleshooting</h2>
+<li>If the Ollama call raises an exception, the generator yields an error message as text instead
+of a structured JSON error response.</li>
+<ul>
+<li><b>Slow or on CPU?</b> Run <code>ollama ps</code>. If it is not 100% GPU, use a smaller model.</li>
+<li><b>Out of memory:</b> long conversations use more VRAM. Use <code>llama3.2:1b</code> or trim old messages.</li>
+<li><b>"Error talking to Ollama":</b> make sure the service is running (<code>ollama serve</code> or <code>systemctl status ollama</code>).</li>
+<li><b>Slow generation?</b> Run <code>ollama ps</code> to see whether CPU, GPU, or both are being used; try a smaller model if memory is limited.</li>
+<li><b>Out of memory:</b> a smaller model or shorter conversation may reduce memory use.</li>
+</ul>
+
+</article>
+</div>
+{% endverbatim %}

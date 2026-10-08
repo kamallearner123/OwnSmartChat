@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Own LLM - Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #f6f7fb; --panel: #fff; --border: #e6e8ef; --text: #1b2130; --muted: #6b7280;
+    --accent: #6366f1; --accent-2: #8b5cf6; --accent-soft: #eef0ff; --sidebar: #0f1220; --sidebar-hover: #1c2036;
+    --radius: 14px; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.06);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; }
+
+  /* Sidebar */
+  nav { width: 250px; background: var(--sidebar); color: #e5e7eb; padding: 18px 12px; flex-shrink: 0; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 10px; margin: 0 6px 4px; }
+  .logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: grid; place-items: center; font-size: 18px; }
+  .brand h2 { font-size: 17px; margin: 0; color: #fff; }
+  .model-pill { display: inline-flex; align-items: center; gap: 6px; margin: 10px 6px 18px; padding: 4px 10px; font-size: 12px; color: #a5b4fc; background: rgba(99,102,241,.14); border-radius: 999px; }
+  .model-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
+  nav > button[data-tab] { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: 0; color: #c7cbe0; padding: 10px 12px; border-radius: 10px; font-size: 14.5px; cursor: pointer; margin-bottom: 2px; transition: background .15s; }
+  nav > button[data-tab] span { width: 20px; text-align: center; }
+  nav > button[data-tab]:hover { background: var(--sidebar-hover); }
+  nav > button[data-tab].active { background: var(--sidebar-hover); color: #fff; box-shadow: inset 3px 0 0 var(--accent); }
+  #recent-title { margin: 22px 8px 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #727896; }
+  #recent { overflow-y: auto; flex: 1; }
+  #recent div { padding: 7px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #d5d8ea; }
+  #recent div:hover { background: var(--sidebar-hover); }
+  #recent small { display: block; margin: 2px 0 0; color: #727896; font-size: 11px; }
+  #recent:empty::after { content: "No chats yet"; display: block; padding: 7px 12px; font-size: 13px; color: #727896; }
+
+  main { flex: 1; min-width: 0; }
+  section { display: none; height: 100%; }
+  section.active { display: flex; flex-direction: column; }
+
+  /* Chat */
+  #messages { flex: 1; overflow-y: auto; padding: 28px 24px; }
+  .msg { max-width: 780px; margin: 0 auto 16px; padding: 12px 16px; border-radius: var(--radius); white-space: pre-wrap; line-height: 1.6; font-size: 15px; }
+  .user { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; margin-left: auto; max-width: 620px; border-bottom-right-radius: 4px; box-shadow: var(--shadow); }
+  .bot { background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 4px; box-shadow: var(--shadow); }
+  .bot .body { white-space: normal; }
+  .bot .body p, .bot .body ul, .bot .body ol, .bot .body pre { margin: 0 0 10px; }
+  .bot .body > :last-child { margin-bottom: 0; }
+  .bot .body h1, .bot .body h2, .bot .body h3 { margin: 12px 0 6px; font-size: 1.05em; }
+  .bot .body ul, .bot .body ol { padding-left: 22px; }
+  .ts { display: block; font-size: 11px; opacity: .65; margin-top: 6px; }
+
+  #hero { max-width: 760px; margin: 6vh auto 0; text-align: center; }
+  #hero .logo { width: 64px; height: 64px; border-radius: 18px; font-size: 32px; margin: 0 auto 18px; box-shadow: 0 10px 30px rgba(99,102,241,.35); }
+  #hero h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -.02em; }
+  #hero h1 em { font-style: normal; background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #hero p { color: var(--muted); margin: 0 auto 28px; max-width: 520px; line-height: 1.6; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 22px; }
+  .feature { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: left; box-shadow: var(--shadow); }
+  .feature b { display: block; margin: 6px 0 2px; font-size: 14px; }
+  .feature span { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .chip { border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 8px 14px; border-radius: 999px; font-size: 13.5px; cursor: pointer; transition: all .15s; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+  #attachment { display: none; margin: 0 24px; padding: 8px 14px; background: var(--accent-soft); color: #4338ca; border-radius: 10px; font-size: 13px; }
+  #attachment a { color: #dc2626; cursor: pointer; margin-left: 10px; }
+  form { display: flex; gap: 10px; align-items: center; margin: 12px 24px 20px; padding: 8px 8px 8px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
+  form:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
+  form input { flex: 1; padding: 8px 0; font-size: 15px; border: 0; outline: 0; background: none; color: var(--text); }
+  form button { padding: 10px 22px; border: 0; border-radius: 999px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; font-size: 14.5px; font-weight: 600; cursor: pointer; }
+  form button:disabled { opacity: .5; cursor: default; }
+  #form, #attachment { width: calc(100% - 48px); max-width: 780px; align-self: center; }
+
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 10px; overflow-x: auto; font-size: 13.5px; line-height: 1.45; }
+  code { background: #eef0f6; padding: 1px 6px; border-radius: 5px; font-size: .92em; }
+  pre code { background: none; padding: 0; }
+  h1, h2, h3 { color: #111827; }
+  td, th { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  table { border-collapse: collapse; }
+
+  /* Tools / Stats cards */
+  .page { padding: 28px 32px; overflow-y: auto; }
+  .page > h1 { margin: 0 0 4px; font-size: 24px; }
+  .page > .sub { margin: 0 0 20px; color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; max-width: 780px; box-shadow: var(--shadow); }
+  .card h3 { margin: 0 0 10px; }
+  .card input[type=text], .card input:not([type]) { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; }
+  button.primary { padding: 9px 18px; border: 0; border-radius: 10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .5; }
+  .bar { background: #e9ebf3; border-radius: 999px; height: 10px; overflow: hidden; margin: 6px 0 12px; }
+  .bar > div { background: linear-gradient(90deg, var(--accent), var(--accent-2)); height: 100%; transition: width .4s; }
+  .bar > div.hot { background: linear-gradient(90deg, #f59e0b, #dc2626); }
+
+  @media (max-width: 800px) {
+    body { flex-direction: column; }
+    nav { width: 100%; flex-direction: row; align-items: center; padding: 8px; gap: 4px; overflow-x: auto; }
+    .brand h2, .model-pill, #recent-title, #recent { display: none; }
+    .brand { margin: 0 8px 0 0; }
+    nav > button[data-tab] { width: auto; margin: 0; white-space: nowrap; }
+    #hero h1 { font-size: 24px; }
+    .page { padding: 18px; }
+  }
+</style>
+</head>
+<body>
+{% csrf_token %}
+<nav>
+  <div class="brand"><div class="logo">🧠</div><h2>My Own LLM</h2></div>
+  <div class="model-pill">{{ model }}</div>
+  <button class="active" data-tab="chat"><span>💬</span>Chat</button>
+  <button data-tab="tools"><span>🛠️</span>Tools</button>
+  <button data-tab="stats"><span>📊</span>Stats</button>
+  <button data-tab="tutorial"><span>📖</span>Tutorial</button>
+  <div id="recent-title">Recent chats</div>
+  <div id="recent"></div>
+</nav>
+
+<main>
+  <section id="chat" class="active">
+    <div id="messages">
+      <div id="hero">
+        <div class="logo">🧠</div>
+        <h1>Your private AI, <em>running locally</em></h1>
+        <p>Chat with {{ model }} on your own hardware through Ollama. No cloud, no data leaving this machine.</p>
+        <div class="features">
+          <div class="feature">🔒<b>Private</b><span>Everything stays on your computer.</span></div>
+          <div class="feature">🌐<b>Web scraper</b><span>Pull a page's text into the conversation.</span></div>
+          <div class="feature">📄<b>PDF parser</b><span>Ask questions about your documents.</span></div>
+          <div class="feature">📊<b>Live stats</b><span>Watch CPU, RAM and GPU load.</span></div>
+        </div>
+        <div class="chips">
+          <button class="chip">Explain how this app works</button>
+          <button class="chip">Write a Python function to reverse a string</button>
+          <button class="chip">Give me 3 ideas for a weekend project</button>
+          <button class="chip">Summarize the difference between CPU and GPU</button>
+        </div>
+      </div>
+    </div>
+    <div id="attachment"><span id="attachment-name"></span><a id="attachment-clear">remove</a></div>
+    <form id="form">
+      <input id="input" autocomplete="off" placeholder="Type your question..." autofocus>
+      <button id="send">Send</button>
+    </form>
+  </section>
+
+  <section id="tools">
+    <div class="page">
+      <h1>Tools</h1>
+      <p class="sub">Extract text from a web page or PDF, then use it as context in chat.</p>
+      <div class="card">
+        <h3>🌐 Web scraper</h3>
+        <input id="scrape-url" placeholder="https://example.com/article">
+        <p><button id="scrape-btn" class="primary">Scrape</button></p>
+      </div>
+      <div class="card">
+        <h3>📄 PDF parser</h3>
+        <input id="pdf-file" type="file" accept="application/pdf">
+        <p><button id="pdf-btn" class="primary">Parse PDF</button></p>
+      </div>
+      <div class="card" id="tool-result" style="display:none">
+        <h3 id="tool-title"></h3>
+        <small id="tool-meta"></small>
+        <pre id="tool-text" style="max-height:300px; white-space:pre-wrap"></pre>
+        <button id="tool-use" class="primary">Use in chat</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="stats">
+    <div id="stats-body" class="page"><h1>Stats</h1><p class="sub">Loading...</p></div>
+  </section>
+
+  <section id="tutorial">
+    {% include "chat/tutorial.html" %}
+  </section>
+</main>
+
+<script>
+  // Sidebar tab switching
+  document.querySelectorAll('nav button').forEach(btn => btn.onclick = () => {
+    document.querySelectorAll('nav button, main section').forEach(el => el.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+
+  const messagesEl = document.getElementById('messages');
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  // Full history (up to 10000 messages) is stored server-side; only the recent turns are sent to the model
+  const history = [];
+  const CONTEXT_TURNS = 20;
+
+  // Follow new text only while the user is at the bottom; scrolling up pauses auto-scroll
+  let stickToBottom = true;
+  messagesEl.addEventListener('scroll', () => {
+    stickToBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
+  });
+
+  const RECENT_LIMIT = 15;
+  const recentEl = document.getElementById('recent');
+  const fmt = ts => new Date(ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
+  function addRecent(text, ts, target) {
+    const item = document.createElement('div');
+    item.innerHTML = '<span></span><small></small>';
+    item.firstChild.textContent = text.length > 40 ? text.slice(0, 40) + '…' : text;
+    item.lastChild.textContent = fmt(ts);
+    item.onclick = () => {
+      document.querySelector('[data-tab=chat]').click();
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    recentEl.prepend(item);
+    while (recentEl.children.length > RECENT_LIMIT) recentEl.lastChild.remove();
+  }
+
+  // Minimal, HTML-safe Markdown renderer (headings, bold/italic, code, lists, paragraphs)
+  function md(src) {
+    const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const inline = t => esc(t)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*|__([^_\n]+)__/g, (_, a, b) => `<strong>${a || b}</strong>`)
+      .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    const out = [];
+    let list = null, para = [], code = null;
+    const flushPara = () => { if (para.length) out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; };
+    const flushList = () => { if (list) out.push(`</${list}>`); list = null; };
+    for (const line of src.split('\n')) {
+      if (code !== null) {
+        if (/^```/.test(line)) { out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>'); code = null; }
+        else code.push(line);
+        continue;
+      }
+      let m;
+      if (/^```/.test(line)) { flushPara(); flushList(); code = []; }
+      else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); out.push(`<h3>${inline(m[2])}</h3>`); }
+      else if ((m = line.match(/^\s*([*+-]|\d+\.)\s+(.*)/))) {
+        flushPara();
+        const tag = /\d/.test(m[1]) ? 'ol' : 'ul';
+        if (list !== tag) { flushList(); out.push(`<${tag}>`); list = tag; }
+        out.push(`<li>${inline(m[2])}</li>`);
+      }
+      else if (!line.trim()) { flushPara(); flushList(); }
+      else { flushList(); para.push(line); }
+    }
+    if (code !== null) out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>');
+    flushPara(); flushList();
+    return out.join('');
+  }
+
+  function addMessage(cls, text, ts = new Date().toISOString()) {
+    document.getElementById('hero')?.remove();
+    const div = document.createElement('div');
+    div.className = 'msg ' + cls;
+    const body = document.createElement('div');
+    body.className = 'body';
+    if (cls === 'bot') body.innerHTML = md(text); else body.textContent = text;
+    div.appendChild(body);
+    div.body = body;
+    const stamp = document.createElement('span');
+    stamp.className = 'ts';
+    stamp.textContent = fmt(ts);
+    div.appendChild(stamp);
+    div.stamp = stamp;
+    if (cls === 'user') addRecent(text, ts, div);
+    messagesEl.appendChild(div);
+    if (stickToBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  fetch('/api/history/').then(r => r.json()).then(d => d.messages.forEach(m => {
+    history.push(m);
+    addMessage(m.role === 'user' ? 'user' : 'bot', m.content, m.ts);
+  }));
+
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => { input.value = c.textContent; form.requestSubmit(); });
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const question = input.value.trim();
+    if (!question) return;
+    input.value = '';
+    sendBtn.disabled = true;
+
+    stickToBottom = true;
+    addMessage('user', question);
+    history.push({ role: 'user', content: question });
+    const botDiv = addMessage('bot', '...');
+
+    const res = await fetch('/api/chat/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify({ messages: history.slice(-CONTEXT_TURNS), context: attached ? attached.text : '' }),
+    });
+
+    // Read the streamed response chunk by chunk and show it as it arrives
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let answer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      answer += decoder.decode(value, { stream: true });
+      botDiv.body.innerHTML = md(answer);
+      if (stickToBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    history.push({ role: 'assistant', content: answer });
+    sendBtn.disabled = false;
+    input.focus();
+  };
+
+  // Tools tab: scrape / parse, then attach the extracted text to chat questions
+  let attached = null, lastResult = null;
+  const attachEl = document.getElementById('attachment');
+  function setAttached(a) {
+    attached = a;
+    attachEl.style.display = a ? 'block' : 'none';
+    document.getElementById('attachment-name').textContent = a ? 'Attached: ' + a.title : '';
+  }
+  document.getElementById('attachment-clear').onclick = () => setAttached(null);
+
+  function showResult(r) {
+    lastResult = r;
+    document.getElementById('tool-result').style.display = 'block';
+    document.getElementById('tool-title').textContent = r.title;
+    document.getElementById('tool-meta').textContent =
+      `${r.text.length} characters` + (r.pages ? `, ${r.pages} pages` : '') + (r.truncated ? ' (truncated)' : '');
+    document.getElementById('tool-text').textContent = r.text;
+  }
+
+  async function runTool(btn, request) {
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = 'Working...';
+    try {
+      const res = await request();
+      const data = await res.json();
+      if (!res.ok) alert(data.error || 'Request failed');
+      else showResult(data);
+    } catch (e) { alert('Request failed'); }
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+
+  document.getElementById('scrape-btn').onclick = e => {
+    const url = document.getElementById('scrape-url').value.trim();
+    if (url) runTool(e.target, () => fetch('/api/scrape/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify({ url }),
+    }));
+  };
+  document.getElementById('pdf-btn').onclick = e => {
+    const file = document.getElementById('pdf-file').files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    runTool(e.target, () => fetch('/api/pdf/', { method: 'POST', headers: { 'X-CSRFToken': csrf }, body: fd }));
+  };
+  document.getElementById('tool-use').onclick = () => {
+    setAttached(lastResult);
+    document.querySelector('[data-tab=chat]').click();
+    input.focus();
+  };
+
+  // Stats tab: poll while visible
+  const statsBody = document.getElementById('stats-body');
+  const gb = b => (b / 1024 ** 3).toFixed(2) + ' GB';
+  const bar = pct => `<div class="bar"><div class="${pct > 85 ? 'hot' : ''}" style="width:${Math.min(pct, 100)}%"></div></div>`;
+  const esc = t => String(t).replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+
+  async function refreshStats() {
+    if (!document.getElementById('stats').classList.contains('active')) return;
+    try {
+      const d = await (await fetch('/api/stats/')).json();
+      const cpuPct = d.cpu.load[0] / d.cpu.cores * 100;
+      let html = `<div class="card"><h3>CPU</h3>Load avg (1/5/15 min): ${d.cpu.load.map(x => x.toFixed(2)).join(' / ')} on ${d.cpu.cores} cores (${cpuPct.toFixed(0)}%)${bar(cpuPct)}</div>`;
+      const mp = d.memory.used / d.memory.total * 100;
+      html += `<div class="card"><h3>RAM</h3>${gb(d.memory.used)} / ${gb(d.memory.total)} (${mp.toFixed(0)}%)${bar(mp)}</div>`;
+      const dp = d.disk.used / d.disk.total * 100;
+      html += `<div class="card"><h3>Disk (/)</h3>${gb(d.disk.used)} / ${gb(d.disk.total)} (${dp.toFixed(0)}%)${bar(dp)}</div>`;
+      if (!d.gpus.length) html += '<div class="card"><h3>GPU</h3>No NVIDIA GPU detected.</div>';
+      d.gpus.forEach((g, i) => {
+        const vp = g.mem_used / g.mem_total * 100;
+        html += `<div class="card"><h3>GPU ${i}: ${esc(g.name)}</h3>
+          Utilization: ${g.util ?? 'n/a'}%${bar(g.util || 0)}
+          VRAM: ${gb(g.mem_used)} / ${gb(g.mem_total)} (${vp.toFixed(0)}%)${bar(vp)}
+          Temperature: ${g.temp ?? 'n/a'} &deg;C<br>
+          Power: ${g.power ?? 'n/a'} W / ${g.power_limit ?? 'n/a'} W</div>`;
+      });
+      statsBody.innerHTML = '<h1>Stats</h1><p class="sub">Live system load, refreshed every 2 seconds.</p>' + html;
+    } catch (e) { statsBody.textContent = 'Failed to load stats.'; }
+  }
+  setInterval(refreshStats, 2000);
+  document.querySelector('[data-tab=stats]').addEventListener('click', refreshStats);
+</script>
+</body>
+</html>
